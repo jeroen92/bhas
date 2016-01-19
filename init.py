@@ -16,6 +16,7 @@ args = parser.parse_args()
 
 if args.initialize:
     initDb()
-
 elif args.dropdb:
     dropDb()
+else:
+    bootstrap()
