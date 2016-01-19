@@ -14,6 +14,6 @@ BGP Hijack Alerting System, version {0} \
 '.format(VERSION, APPNAME_SHORT)
 
 parser = argparse.ArgumentParser(description=USAGE)
-parser.add_argument('-i', '--initialize', type=initDb, action="store_true", help='Initialize the database')
+parser.add_argument('-i', '--initialize', action="store_true", help='Initialize the database')
 
 args = parser.parse_args()
