@@ -16,7 +16,7 @@ def initDb():
         print inputprefix
         reader = csv.reader(inputprefix)
         for row in reader:
-            subnet = row.split('/')[0]
-            mask = row.split('/')[1]
+            subnet = row[0].split('/')[0]
+            mask = row[0].split('/')[1]
             target = Prefix(subnet=subnet, mask=mask)
     return 0
