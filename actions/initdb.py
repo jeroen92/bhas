@@ -8,10 +8,21 @@ from classes.prefix import *
 from classes.origin import *
 
 def writeOrigin(origin_as, prefix):
+    originAsCc='XYZ'
+    print origin_as
+    print 'prefix is  ' + prefix.subnet+'/'+str(prefix.mask)
+    asGeolocation = requests.get("https://stat.ripe.net/data/geoloc/data.json?resource={0}".format(origin_as))
+    for location in json.loads(asGeolocation.text)['data']['locations']:
+        if origin_as == 1103:
+            print location['prefixes']
+        # TODO: check if prefix is within supernet
+        if prefix.subnet+'/'+str(prefix.mask) in location['prefixes']:
+            originAsCc = location['country']
+            break
     try:
         Origin.get(Origin.originAs == origin_as, Origin.prefix == prefix)
     except:
-        target = Origin.create(prefix=prefix, originAs=origin_as)
+        target = Origin.create(prefix=prefix, originAs=origin_as, originAsCc=originAsCc)
         target.save()
  
 def initDb():
@@ -35,15 +46,6 @@ def initDb():
                 print 'Error for prefix {0}{1}'.format(row[0].ljust(49),e)
                 pass
     for prefix in Prefix.select():
-        upstreamGeolocation = requests.get("https://stat.ripe.net/data/geoloc/data.json?resource={0}".format(event.asPath.split(',')[-2]))
-        for location in json.loads(upstreamGeolocation.text)['data']['locations']:
-            print 'event prefix: '+event.subnet + '/' + event.mask
-            print 'location prefixes: '
-            for l in location['prefixes']: print l
-            if event.subnet + '/' + event.mask in location['prefixes']:
-                origin.originUpstreamAsCc = location['country']
-                break
-
         prefixm = prefix.subnet+'/'+str(prefix.mask)
         url = "https://stat.ripe.net/data/whois/data.json?resource={0}".format(prefixm)
         system_out = subprocess.Popen(["/usr/bin/curl", url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
