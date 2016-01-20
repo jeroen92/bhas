@@ -5,7 +5,7 @@ from classes.prefix import *
 import datetime, settings
 
 class Hijack(BaseModel):
-    prefix = ForeignKeyField(Prefix, on_delete="CASCADE")
+    prefix = ForeignKeyField(Prefix, on_delete="CASCADE", related_name='hijacks')
     subnet = CharField()
     mask = IntegerField()
     originAs = IntegerField()

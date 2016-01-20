@@ -1,10 +1,18 @@
-import fileinput, json, sys, logging, datetime
+import fileinput, json, sys, logging, datetime, multiprocessing, Queue
 from classes.hijack import *
 from classes.event import *
 from classes.origin import *
 from classes.prefix import *
 
 def bootstrap():
+    logging.info('Bootstrap\t Create shared Queue and start subprocess')
+    eventQueue = multiprocessing.Queue()
+    eventProcessor = multiprocessing.Process(target=processEvents, args = (eventQueue,))
+    eventProcessor.start()
+    processStdin(eventQueue)
+    eventProcessor.join()
+
+def processStdin(eventQueue):
     while True:
         line = sys.stdin.readline()
         if line == '':
@@ -34,8 +42,26 @@ def bootstrap():
                 timestamp=timestamp
             )
             logging.debug('Bootstrap\t Parsed Event from update message: {0}'.format(str(event.__dict__)))
+            eventQueue.put_nowait(event)
         except KeyError as e:
             logging.debug(e)
         except IntegrityError as e:
             logging.debug(e)
     f.close()
+
+def processEvents(eventQueue):
+    while True:
+        event = eventQueue.get()
+        logging.info('ProcessEvents\t Picked event from queue: {0}'.format(str(event.__dict__)))
+        prefix = Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).execute()
+        if len(prefix) == 0:
+            discardEvent(event)
+        else:
+            checkEventOrigin(event, prefix)
+
+def checkEventOrigin(event, prefix):
+    print event
+
+def discardEvent(event):
+    logging.info("ProcessEvents\t Dismissing update")
+    del(event)

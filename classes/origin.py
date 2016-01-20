@@ -5,7 +5,7 @@ from classes.prefix import *
 import datetime, settings
 
 class Origin(BaseModel):
-    prefix = ForeignKeyField(Prefix, on_delete="CASCADE")
+    prefix = ForeignKeyField(Prefix, on_delete="CASCADE", related_name='origins')
     originAs = IntegerField()
     originUpstreamAsCc = CharField(null=True)
     originUpstreamAs = IntegerField(null=True)
