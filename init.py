@@ -1,10 +1,19 @@
 #!/usr/bin/env python
 
-import time, argparse, settings
+import time, argparse, settings, logging, os
 from actions.bootstrap import *
 from actions.dropdb import *
 from actions.initdb import *
 
+# Enable logging
+logging.basicConfig(filename='bhas.log', level=logging.DEBUG)
+
+# Change directory
+absolutePath = os.path.realpath(__file__)
+directoryName = os.path.dirname(absolutePath)
+os.chdir(directoryName)
+
+# Parse program arguments
 USAGE = '{1}.py [-dhi]\n\n\
 BGP Hijack Alerting System, version {0} \
 '.format(settings.VERSION, settings.APPNAME_SHORT)
