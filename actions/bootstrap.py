@@ -1,4 +1,4 @@
-import fileinput, json, sys, logging, datetime, multiprocessing, Queue, urllib
+import fileinput, json, sys, logging, datetime, multiprocessing, Queue, urllib, requests
 from classes.hijack import *
 from classes.event import *
 from classes.origin import *
@@ -82,9 +82,11 @@ def checkUpstreamAs(event, prefix, origin):
     if origin.originUpstreamAs == event.asPath[-2]:
         checkIfHijacked(event, prefix, origin)
     else:
-        logging.info("ProcessEvents\t Check RIPEstat for upstream geolocation is not implemented. Event will be dismissed.")
-        geo=None
-        if geo == origin.originUpstreamAsCc:
+        upstreamGeolocation = requests.get("https://stat.ripe.net/data/geoloc/data.json?resource={0}".format(event.asPath.split(',')[-2]))
+        for location in json.loads(upstreamGeolocation.text)['data']['locations']:
+            if event.subnet + '/' + event.mask in location['prefixes']:
+                event.originUpstreamAsCc = location['country']
+        if event.originUpstreamAsCc == origin.originUpstreamAsCc:
             discardEvent()
         else:
             reportHijack(event, prefix, origin)

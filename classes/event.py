@@ -1,5 +1,5 @@
 class Event():
-    def __init__(self, subnet, mask, asPath, neighbor, med, announcementType, timestamp):
+    def __init__(self, subnet, mask, asPath, neighbor, med, announcementType, timestamp, originUpstreamAsCc = None):
         self.subnet = subnet
         self.mask = mask
         self.originAs = asPath[-1]
@@ -7,6 +7,7 @@ class Event():
         self.neighbor = neighbor
         self.med = med
         self.announcementType = announcementType
+        self.originUpstreamAsCc = originUpstreamAsCc
         self.timestamp = timestamp
 
     def __hash__(self):
