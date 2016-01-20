@@ -20,9 +20,10 @@ def processStdin(eventQueue):
         logging.debug('Bootstrap\t Got new line from stdin, trying to parse JSON')
         try:
             announcement = json.loads(line)
-        except ValueError:
+            logging.debug('Bootstrap\t Load json into dict: {0}'.format(announcement))
+        except ValueError as e:
             logging.debug(e)
-        logging.debug('Bootstrap\t Load json into dict: {0}'.format(announcement))
+            continue
 
         # CHECK IF UPDATE OR WITHDRAWAL
         try:
@@ -63,15 +64,12 @@ def processEvents(eventQueue):
             if query.exists():
                 origins = query.execute()
                 for origin in origins:
+                    if not origin.originAs == event.originAs:
+                        continue
                     origin.asPath = event.asPath
                     origin.originUpstreamAs = None
                     if len(origin.asPath.split(',')) > 1:
                         origin.originUpstreamAs = event.asPath.split(',')[-2]
-                        upstreamGeolocation = requests.get("https://stat.ripe.net/data/geoloc/data.json?resource={0}".format(event.asPath.split(',')[-2]))
-                        for location in json.loads(upstreamGeolocation.text)['data']['locations']:
-                            if event.subnet + '/' + event.mask in location['prefixes']:
-                                origin.originUpstreamAsCc = location['country']
-                                break
                     origin.save()
             if checkEventOrigin(event, prefix) == 0:
                 logging.info("ProcessEvents\t Event dismissed for monitored event. Check application for leaking events (i.e. events that are not explicitly discarded or else triggered for a hijack.")
@@ -124,10 +122,8 @@ def checkUpstreamAs(event, prefix, origin):
     else:
         upstreamGeolocation = requests.get("https://stat.ripe.net/data/geoloc/data.json?resource={0}".format(event.asPath.split(',')[-2]))
         for location in json.loads(upstreamGeolocation.text)['data']['locations']:
-            if event.subnet + '/' + event.mask in location['prefixes']:
-                event.originUpstreamAsCc = location['country']
-        if event.originUpstreamAsCc == origin.originUpstreamAsCc:
-            discardEvent(event)
+            if location['country'] == origin.originAsCc:
+                discardEvent(event)
         else:
             # TODO check less/more specific prefix and alert prefix/subnet hijack --> type 3/4
             reportHijack(event, prefix, origin)

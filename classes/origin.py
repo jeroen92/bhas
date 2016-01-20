@@ -7,7 +7,7 @@ import datetime, settings
 class Origin(BaseModel):
     prefix = ForeignKeyField(Prefix, on_delete="CASCADE", related_name='origins')
     originAs = IntegerField()
-    originUpstreamAsCc = CharField(null=True)
+    originAsCc = CharField(null=True)
     originUpstreamAs = IntegerField(null=True)
     asPath = CharField(null=True)
     createdAt = DateTimeField(default=datetime.datetime.now)
