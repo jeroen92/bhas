@@ -5,6 +5,10 @@ from actions.bootstrap import *
 from actions.dropdb import *
 from actions.initdb import *
 
+absolutePath = os.path.realpath(__file__)
+directoryName = os.path.dirname(absolutePath)
+os.chdir(directoryName)
+
 USAGE = '{1}.py [-dhi]\n\n\
 BGP Hijack Alerting System, version {0} \
 '.format(settings.VERSION, settings.APPNAME_SHORT)
