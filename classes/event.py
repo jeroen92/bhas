@@ -2,7 +2,8 @@ class Event():
     def __init__(self, subnet, mask, asPath, neighbor, med, announcementType, timestamp):
         self.subnet = subnet
         self.mask = mask
-        self.asPath = asPath
+        self.originAs = asPath[-1]
+        self.asPath = ','.join(map(str, asPath)) 
         self.neighbor = neighbor
         self.med = med
         self.announcementType = announcementType
