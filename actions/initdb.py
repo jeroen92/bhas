@@ -2,10 +2,18 @@ import settings
 import csv
 import json
 import os, subprocess
+import ipwhois
 from classes.hijack import *
 from classes.prefix import *
 from classes.origin import *
 
+def writeOrigin(origin_as, prefix):
+    try:
+        Origin.get(Origin.originAs == origin_as, Origin.prefix == prefix)
+    except:
+        target = Origin.create(prefix=prefix, originAs=origin_as)
+        target.save()
+ 
 def initDb():
     print 'Initializing database'
     print 'Creating tables\n'
@@ -32,10 +40,14 @@ def initDb():
         system_out = subprocess.Popen(["/usr/bin/curl", url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout,stderr = system_out.communicate()
         dict = json.loads(stdout)
+        found = False
         for list in dict['data']['irr_records']:
             for value in list:
                 if value['key'] == "origin":
+                    found = True
                     origin_as = value['value']
-                    target = Origin.create(prefix=prefix, originAs=origin_as)
-                    target.save()     
+                    writeOrigin(origin_as, prefix)
+        if not found:
+            origin_as = ipwhois.IPWhois(prefix.subnet).lookup()['asn']
+            writeOrigin(origin_as, prefix)
     return 0
