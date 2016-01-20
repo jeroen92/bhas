@@ -12,5 +12,6 @@ class Hijack(BaseModel):
     originUpstreamAs = IntegerField()
     originUpstreamAsCc = CharField(null=True)
     asPath = CharField()
+    hijackType = IntegerField()
     createdAt = DateTimeField(default=datetime.datetime.now)
     withdrawnAt = DateTimeField(null=True)
