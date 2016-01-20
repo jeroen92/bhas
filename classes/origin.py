@@ -5,10 +5,9 @@ from classes.prefix import *
 import datetime, settings
 
 class Origin(BaseModel):
-    id = BigIntegerField(unique=True, primary_key=True)
     prefix = ForeignKeyField(Prefix, on_delete="CASCADE")
     originAs = IntegerField()
-    originUpstreamAsCc = CharField()
-    originUpstreamAs = IntegerField()
+    originUpstreamAsCc = CharField(null=True)
+    originUpstreamAs = IntegerField(null=True)
     createdAt = DateTimeField(default=datetime.datetime.now)
-    withdrawedAt = DateTimeField()
+    withdrawedAt = DateTimeField(null=True)

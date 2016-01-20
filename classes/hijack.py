@@ -5,7 +5,6 @@ from classes.prefix import *
 import datetime, settings
 
 class Hijack(BaseModel):
-    id = BigIntegerField(unique=True, primary_key=True)
     prefix = ForeignKeyField(Prefix, on_delete="CASCADE")
     subnet = CharField()
     mask = IntegerField()

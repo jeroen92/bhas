@@ -1,5 +1,7 @@
 import settings
 import csv
+import json
+import os, subprocess
 from classes.hijack import *
 from classes.prefix import *
 from classes.origin import *
@@ -24,4 +26,16 @@ def initDb():
                 # string.ljust(x) appends x spaces to the right end of the string
                 print 'Error for prefix {0}{1}'.format(row[0].ljust(49),e)
                 pass
+    for prefix in Prefix.select():
+        prefixm = prefix.subnet+'/'+str(prefix.mask)
+        url = "https://stat.ripe.net/data/whois/data.json?resource={0}".format(prefixm)
+        system_out = subprocess.Popen(["/usr/bin/curl", url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout,stderr = system_out.communicate()
+        dict = json.loads(stdout)
+        for list in dict['data']['irr_records']:
+            for value in list:
+                if value['key'] == "origin":
+                    origin_as = value['value']
+                    target = Origin.create(prefix=prefix, originAs=origin_as)
+                    target.save()     
     return 0
