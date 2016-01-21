@@ -1,4 +1,4 @@
-import fileinput, json, sys, logging, datetime, multiprocessing, Queue, urllib, requests
+import fileinput, json, sys, logging, datetime, multiprocessing, Queue, urllib, requests, netaddr
 from classes.hijack import *
 from classes.event import *
 from classes.origin import *
@@ -46,46 +46,82 @@ def processStdin(eventQueue):
                 ipVersion = 'ipv6 unicast'
 
             if updateType == 'announce':
-                # TODO can have multiple keys -->announcements !
-                prefix = announcement['neighbor']['message'][announcementType][updateType]['ipv4 unicast'][neighbor].keys()[0]
+                for prefix in announcement['neighbor']['message'][announcementType][updateType][ipVersion][neighbor].keys():
+                    subnet = prefix.split('/')[0]
+                    mask = prefix.split('/')[1]
+                    event = Event(
+                        subnet=subnet,
+                        mask=mask,
+                        asPath=asPath,
+                        neighbor=neighbor,
+                        med=None,
+                        announcementType = announcementType,
+                        updateType = updateType,
+                        timestamp=timestamp
+                    )
+                    logging.debug('Bootstrap\t Parsed Event from update message: {0}'.format(str(event.__dict__)))
+                    eventQueue.put_nowait(event)
             elif updateType == 'withdraw':
-                prefix = announcement['neighbor']['message'][announcementType][updateType]['ipv4 unicast'].keys()[0]
-            subnet = prefix.split('/')[0]
-            mask = prefix.split('/')[1]
-            event = Event(
-                subnet=subnet,
-                mask=mask,
-                asPath=asPath,
-                neighbor=neighbor,
-                med=None,
-                announcementType = announcementType,
-                updateType = updateType,
-                timestamp=timestamp
-            )
-            logging.debug('Bootstrap\t Parsed Event from update message: {0}'.format(str(event.__dict__)))
-            eventQueue.put_nowait(event)
+                for prefix in announcement['neighbor']['message'][announcementType][updateType][ipVersion].keys():
+                    subnet = prefix.split('/')[0]
+                    mask = prefix.split('/')[1]
+                    event = Event(
+                        subnet=subnet,
+                        mask=mask,
+                        asPath=asPath,
+                        neighbor=neighbor,
+                        med=None,
+                        announcementType = announcementType,
+                        updateType = updateType,
+                        timestamp=timestamp
+                    )
+                    logging.debug('Bootstrap\t Parsed Event from update message: {0}'.format(str(event.__dict__)))
+                    eventQueue.put_nowait(event)
         except KeyError as e:
-            logging.debug(e)
+            logging.info('Bootstrap\t Parsing Event failed, errormsg: {0}'.format(e))
         except IntegrityError as e:
-            logging.debug(e)
+            logging.info('Bootstrap\t Parsing Event, database error, errormsg: {0}'.format(e))
     f.close()
 
 def processEvents(eventQueue):
     while True:
         event = eventQueue.get()
-        logging.info('ProcessEvents\t Picked {0} event from queue: {1}'.format(event.updateType, str(event.__dict__)))
-        prefix = Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).first()
+        logging.info('ProcessEvents\t Picked {0} event from queue: {1}'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
+        logging.debug('ProcessEvents\t Picked {0} event from queue: {1}'.format(event.updateType, str(event.__dict__)))
+        # Check if event prefix exactly matches a monitoring prefix
+        if Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).exists():
+            prefix = Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).first()
+            event.prefixType = 'prefixmatch'
+
+        # Event prefix is not a possible prefix hijack. Check if it is more specific or of it is a supernet
+        # Note: If 145.0.0.0/8 and 145.0.100.0/24 are monitored, a malicious announcement of 145.0.0.0/16 can trigger
+        # either a less or more specific hijack, depending on which record is first encountered.
+        # This tool should not be used that way. Please only monitor the largest network only.
         if not prefix:
-            checkLessSpecificHijack(event)
+            eventCidrPrefix = event.subnet + '/' + event.mask
+            for monitoredPrefix in Prefix.select():
+                monitoredCidrPrefix = monitoredPrefix.subnet + '/' + monitoredPrefix.mask
+                if IPNetwork(monitoredCidrPrefix) in IPNetwork(eventCidrPrefix):
+                    event.prefixType = 'supernet'
+                    prefix = monitoredPrefix
+                    break
+                elif IPNetwork(eventCidrPrefix) in IPNetwork(monitoredCidrPrefix):
+                    event.prefixType = 'subnet'
+                    prefix = monitoredPrefix
+        logging.info('Bootstrap\t Event {2} with prefix {0} was tested as a {1}'.format(event.subnet + '/' + str(event.mask), str(event.prefixType), event.updateType))
+        if not prefix:
+            discardEvent(event)
         else:
             if event.updateType == 'announce':
                 checkAnnouncementEvent(event, prefix)
             if event.updateType == 'withdraw':
                 checkWithdrawalEvent(event, prefix)
 
+# Test event if it is an withdrawal
 def checkWithdrawalEvent(event, prefix):
     checkIfHijacked(event, prefix)
 
+# Test event if it is an announcement
 def checkAnnouncementEvent(event, prefix):
     query = prefix.origins.select().where(Origin.asPath >> None)
     if query.exists():
@@ -100,9 +136,6 @@ def checkAnnouncementEvent(event, prefix):
             origin.save()
     if checkEventOrigin(event, prefix) == 0:
         logging.info("ProcessEvents\t Event dismissed for monitored event. Check application for leaking events (i.e. events that are not explicitly discarded or else triggered for a hijack.")
-
-def checkLessSpecificHijack(event):
-    print 'do something'
 
 # Hijack types:
 # 1: prefix hijack
@@ -148,6 +181,7 @@ def checkIfHijacked(event, prefix, origin = None):
         query = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None))
         if query.exists():
             for hijack in query.execute():
+                logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of an existing hijack. Clear Hijack.'.format(event.updateType, str(event.subnet + '/' + event.mask)))
                 clearHijack(event, prefix)
         # If hijack for prefix does not exist
         else:
@@ -156,15 +190,20 @@ def checkIfHijacked(event, prefix, origin = None):
             query = Hijack.select().where(Hijack.prefix == prefix)
             if query.exists():
                 for hijack in query.execute():
+                    logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as not the first withdrawal of an existing hijack. Clear Hijack once more.'.format(event.updateType, str(event.subnet + '/' + event.mask)))
                     clearHijack(event, prefix)
             # If no hijacks exists that only matches the event's prefix, it is a legitimate withdrawal of the original prefix
             else:
+                logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of a monitored prefix. Set prefix withdrawnAt.'.format(event.updateType, str(event.subnet + '/' + event.mask)))
                 prefix.withdrawnAt = datetime.datetime.now
                 prefix.save()
     # If announcement, check if hijack exists
     elif event.updateType == 'announce':
-        hijacks = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None) & (Hijack.asPath == event.asPath)).execute()
+        hijacks = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None) & (Hijack.asPath != event.asPath)).execute()
         for hijack in hijacks:
+            # TODO: re check what this is about...
+            # TODO: get all origin aspaths and check if this announcement matches one of them. If so, the hijack is over and hijacks regarding this prefix should be cleared from the database
+            logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of an existing hijack. Clear Hijack.'.format(event.updateType, str(event.subnet + '/' + event.mask)))
             clearHijack(event, prefix)
 
 def checkUpstreamAs(event, prefix, origin):
@@ -176,8 +215,12 @@ def checkUpstreamAs(event, prefix, origin):
             if location['country'] == origin.originAsCc:
                 discardEvent(event)
         else:
-            # TODO check less/more specific prefix and alert prefix/subnet hijack --> type 3/4
-            reportHijack(event, prefix, origin)
+            # If announced prefix is an exact match to the monitored prefix
+            if event.prefixType == 'prefixmatch':
+                reportHijack(event, prefix, 3, origin)
+            # If not, check if a more specific is announced
+            elif event.prefixType == 'subnet':
+                reportHijack(event, prefix, 4, origin)
 
 # Compare the AS path in the event with the AS path saved in the database
 def checkAsPath(event, prefix, origin):
@@ -189,8 +232,12 @@ def checkAsPath(event, prefix, origin):
 # Not necessary for the test, so not implemented
 def checkRipestatOriginAs(event, prefix):
     logging.info("ProcessEvents\t CheckRipestatOriginAs is not implemented. Hijack will be reported.")
-    # TODO check less/more specific prefix and alert prefix/subnet hijack --> type 1/2
-    reportHijack(event, prefix, 1)
+    # If announced prefix is an exact match to the monitored prefix
+    if event.prefixType == 'prefixmatch':
+        reportHijack(event, prefix, 1)
+    # If not, check if a more specific is announced
+    elif event.prefixType == 'subnet':
+        reportHijack(event, prefix, 2)
 
 # If the origin AS in the event matches at least one (MOAS) AS in the database
 # for that prefix, set originMatches to True and continue to check the AS path
@@ -207,6 +254,6 @@ def checkEventOrigin(event, prefix):
         checkRipestatOriginAs(event, prefix)
 
 def discardEvent(event):
-    logging.info("ProcessEvents\t Dismissing update")
+    logging.info("ProcessEvents\t Dismissing update for prefix {0}".format(event.subnet + '/' + event.mask))
     del(event)
     return 1
