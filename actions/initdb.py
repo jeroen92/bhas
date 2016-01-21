@@ -9,12 +9,8 @@ from classes.origin import *
 
 def writeOrigin(origin_as, prefix):
     originAsCc='XYZ'
-    print origin_as
-    print 'prefix is  ' + prefix.subnet+'/'+str(prefix.mask)
     asGeolocation = requests.get("https://stat.ripe.net/data/geoloc/data.json?resource={0}".format(origin_as))
     for location in json.loads(asGeolocation.text)['data']['locations']:
-        if origin_as == 1103:
-            print location['prefixes']
         # TODO: check if prefix is within supernet
         if prefix.subnet+'/'+str(prefix.mask) in location['prefixes']:
             originAsCc = location['country']
