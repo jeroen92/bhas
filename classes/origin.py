@@ -11,4 +11,3 @@ class Origin(BaseModel):
     originUpstreamAs = IntegerField(null=True)
     asPath = CharField(null=True)
     createdAt = DateTimeField(default=datetime.datetime.now)
-    withdrawedAt = DateTimeField(null=True)

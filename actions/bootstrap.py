@@ -29,19 +29,37 @@ def processStdin(eventQueue):
         try:
             logging.debug('Bootstrap\t Stripping attributes from update message')
             announcementType = announcement['type']
-            prefix = announcement['neighbor']['message'][announcementType]['announce']['ipv4 unicast'][announcement['neighbor']['ip']].keys()[0]
+            neighbor = announcement['neighbor']['ip']
+            # Check for announce/withdraw
+            if 'announce' in announcement['neighbor']['message'][announcementType]:
+                updateType = 'announce'
+                asPath = announcement['neighbor']['message']['update']['attribute']['as-path']
+                neighbor = announcement['neighbor']['ip']
+                timestamp = datetime.datetime.fromtimestamp(announcement['time']).strftime('%Y-%m-%d %H:%M:%S')
+            elif 'withdraw' in announcement['neighbor']['message'][announcementType]:
+                updateType = 'withdraw'
+
+            # Check ipv4/ipv6
+            if announcement['neighbor']['message'][announcementType][updateType].get('ipv4 unicast', None):
+                ipVersion = 'ipv4 unicast'
+            elif announcement['neighbor']['message'][announcementType][updateType].get('ipv6 unicast', None):
+                ipVersion = 'ipv6 unicast'
+
+            if updateType == 'announce':
+                # TODO can have multiple keys -->announcements !
+                prefix = announcement['neighbor']['message'][announcementType][updateType]['ipv4 unicast'][neighbor].keys()[0]
+            elif updateType == 'withdraw':
+                prefix = announcement['neighbor']['message'][announcementType][updateType]['ipv4 unicast'].keys()[0]
             subnet = prefix.split('/')[0]
             mask = prefix.split('/')[1]
-            asPath = announcement['neighbor']['message']['update']['attribute']['as-path']
-            neighbor = announcement['neighbor']['ip']
-            timestamp = datetime.datetime.fromtimestamp(announcement['time']).strftime('%Y-%m-%d %H:%M:%S')
             event = Event(
                 subnet=subnet,
                 mask=mask,
                 asPath=asPath,
                 neighbor=neighbor,
                 med=None,
-                announcementType=announcementType,
+                announcementType = announcementType,
+                updateType = updateType,
                 timestamp=timestamp
             )
             logging.debug('Bootstrap\t Parsed Event from update message: {0}'.format(str(event.__dict__)))
@@ -55,24 +73,33 @@ def processStdin(eventQueue):
 def processEvents(eventQueue):
     while True:
         event = eventQueue.get()
-        logging.info('ProcessEvents\t Picked event from queue: {0}'.format(str(event.__dict__)))
+        logging.info('ProcessEvents\t Picked {0} event from queue: {1}'.format(event.updateType, str(event.__dict__)))
         prefix = Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).first()
         if not prefix:
             checkLessSpecificHijack(event)
         else:
-            query = prefix.origins.select().where(Origin.asPath >> None)
-            if query.exists():
-                origins = query.execute()
-                for origin in origins:
-                    if not origin.originAs == event.originAs:
-                        continue
-                    origin.asPath = event.asPath
-                    origin.originUpstreamAs = None
-                    if len(origin.asPath.split(',')) > 1:
-                        origin.originUpstreamAs = event.asPath.split(',')[-2]
-                    origin.save()
-            if checkEventOrigin(event, prefix) == 0:
-                logging.info("ProcessEvents\t Event dismissed for monitored event. Check application for leaking events (i.e. events that are not explicitly discarded or else triggered for a hijack.")
+            if event.updateType == 'announce':
+                checkAnnouncementEvent(event, prefix)
+            if event.updateType == 'withdraw':
+                checkWithdrawalEvent(event, prefix)
+
+def checkWithdrawalEvent(event, prefix):
+    checkIfHijacked(event, prefix)
+
+def checkAnnouncementEvent(event, prefix):
+    query = prefix.origins.select().where(Origin.asPath >> None)
+    if query.exists():
+        origins = query.execute()
+        for origin in origins:
+            if not origin.originAs == event.originAs:
+                continue
+            origin.asPath = event.asPath
+            origin.originUpstreamAs = None
+            if len(origin.asPath.split(',')) > 1:
+                origin.originUpstreamAs = event.asPath.split(',')[-2]
+            origin.save()
+    if checkEventOrigin(event, prefix) == 0:
+        logging.info("ProcessEvents\t Event dismissed for monitored event. Check application for leaking events (i.e. events that are not explicitly discarded or else triggered for a hijack.")
 
 def checkLessSpecificHijack(event):
     print 'do something'
@@ -110,11 +137,35 @@ def reportHijack(event, prefix, hijackType, origin = None):
         logging.warning("ProcessEvents\t Less specific hijack alert. Prefix: {0}/{1} hides monitored prefix {6}/{7} by AS {2} with upstream AS {3}. The monitored prefix should be announced by {4}.".format(event.subnet, event.mask, event.originAs, event.asPath.split(',')[-2], originAs, originUpstreamAs, origin.subnet, origin.mask))
     return 2
 
+def clearHijack(event, prefix):
+    hijack.withdrawnAt = datatime.datetime.now
+    hijack.save()
+
 # Before discarding, check if the related prefix is currently hijacked
-def checkIfHijacked(event, prefix, origin):
-    hijacks = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None) & (Hijack.asPath == event.asPath))
-    for hijack in hijacks:
-        hijack.withdrawnAt = datetime.datetime.now
+def checkIfHijacked(event, prefix, origin = None):
+    if event.updateType == 'withdraw':
+        # If hijack for prefix exists
+        query = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None))
+        if query.exists():
+            for hijack in query.execute():
+                clearHijack(event, prefix)
+        # If hijack for prefix does not exist
+        else:
+            # First check if hijack exists with same prefix, but has already been withdrawn
+            # If so, we withdraw it again, and do not delete the whole prefix. Might be a delayed withdrawal.
+            query = Hijack.select().where(Hijack.prefix == prefix)
+            if query.exists():
+                for hijack in query.execute():
+                    clearHijack(event, prefix)
+            # If no hijacks exists that only matches the event's prefix, it is a legitimate withdrawal of the original prefix
+            else:
+                prefix.withdrawnAt = datetime.datetime.now
+                prefix.save()
+    # If announcement, check if hijack exists
+    elif event.updateType == 'announce':
+        hijacks = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None) & (Hijack.asPath == event.asPath)).execute()
+        for hijack in hijacks:
+            clearHijack(event, prefix)
 
 def checkUpstreamAs(event, prefix, origin):
     if origin.originUpstreamAs == event.asPath[-2]:

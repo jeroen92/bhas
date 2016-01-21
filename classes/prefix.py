@@ -6,6 +6,7 @@ import datetime, settings
 class Prefix(BaseModel):
     subnet = CharField()
     mask = BigIntegerField()
+    withdrawnAt = DateTimeField(null=True)
 
     class Meta:
         indexes = (
