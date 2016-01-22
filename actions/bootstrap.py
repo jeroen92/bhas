@@ -181,7 +181,7 @@ def clearHijack(event, prefix, hijack):
 def checkIfHijacked(event, prefix, origin = None):
     if event.updateType == 'withdraw':
         # If hijack for prefix exists
-        query = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None))
+        query = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None) & (Hijack.subnet == event.subnet) & (Hijack.mask == event.mask))
         if query.exists():
             for hijack in query.execute():
                 logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of an existing hijack. Clear Hijack.'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
@@ -190,7 +190,7 @@ def checkIfHijacked(event, prefix, origin = None):
         else:
             # First check if hijack exists with same prefix, but has already been withdrawn
             # If so, we withdraw it again, and do not delete the whole prefix. Might be a delayed withdrawal.
-            query = Hijack.select().where(Hijack.prefix == prefix)
+            query = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.subnet == event.subnet) & (Hijack.mask == event.mask))
             if query.exists():
                 for hijack in query.execute():
                     logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as not the first withdrawal of an existing hijack. Clear Hijack once more.'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
@@ -198,18 +198,19 @@ def checkIfHijacked(event, prefix, origin = None):
             # If no hijacks exists that only matches the event's prefix, it is a legitimate withdrawal of the original prefix
             else:
                 logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of a monitored prefix. Set prefix withdrawnAt.'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
-                prefix.withdrawnAt = datetime.datetime.now
+                prefix.withdrawnAt = datetime.datetime.now()
                 prefix.save()
     # If announcement, check if hijack exists
     elif event.updateType == 'announce':
         for origin in prefix.origins.iterator():
             if event.originAs == origin.originAs:
-                hijacks = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None) & (Hijack.asPath != event.asPath)).execute()
+                hijacks = Hijack.select().where((Hijack.prefix == prefix) & (Hijack.withdrawnAt == None)).execute()
                 for hijack in hijacks:
                     # TODO: re check what this is about...
                     # TODO: get all origin aspaths and check if this announcement matches one of them. If so, the hijack is over and hijacks regarding this prefix should be cleared from the database
-                    logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of an existing hijack. Clear Hijack.'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
-                    clearHijack(event, prefix, hijack)
+                    if not hijack.hijackType == 5:
+                        logging.info('ProcessEvents\t Event {0} with prefix {1} was identified as the withdrawal of an existing hijack. Clear Hijack.'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
+                        clearHijack(event, prefix, hijack)
 
 # Match origin upstream AS to event upstream AS. If no match, compare country code of event AS to country code of prefix origin AS
 def checkUpstreamAs(event, prefix, origin):
@@ -265,6 +266,8 @@ def checkRipestatOriginAs(event, prefix):
     # If not, check if a more specific is announced
     elif event.prefixType == 'subnet':
         reportHijack(event, prefix, 2)
+    elif event.prefixType == 'supernet':
+        reportHijack(event, prefix, 5)
 
 # If the origin AS in the event matches at least one (MOAS) AS in the database
 # for that prefix, set originMatches to True and continue to check the AS path
@@ -276,6 +279,7 @@ def checkEventOrigin(event, prefix):
             originMatches = True
             prefixOrigin = origin
     if originMatches:
+    	logging.warning("ERR: {0},\n{1}".format(prefixOrigin.__dict__, event.__dict__))
         checkAsPath(event, prefix, prefixOrigin)
     else:
         checkRipestatOriginAs(event, prefix)
