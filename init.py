@@ -5,13 +5,13 @@ from actions.bootstrap import *
 from actions.dropdb import *
 from actions.initdb import *
 
-# Enable logging
-logging.basicConfig(filename='bhas.log', level=logging.DEBUG)
-
 # Change directory
 absolutePath = os.path.realpath(__file__)
 directoryName = os.path.dirname(absolutePath)
 os.chdir(directoryName)
+
+# Enable logging
+logging.basicConfig(filename='./bhas.log', level=logging.DEBUG)
 
 # Parse program arguments
 USAGE = '{1}.py [-dhi]\n\n\
