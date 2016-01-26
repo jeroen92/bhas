@@ -85,11 +85,34 @@ def processStdin(eventQueue):
     f.close()
 
 def processEvents(eventQueue):
+    eventsProcessed = 0
+    ipv4AnnouncementsProcessed = 0
+    ipv6AnnouncementsProcessed = 0
+    ipv4WithdrawalsProcessed = 0
+    ipv6WithdrawalsProcessed = 0
+    ipv4InterestingAnnouncementsProcessed = 0
+    ipv6InterestingAnnouncementsProcessed = 0
+    ipv4InterestingWithdrawalsProcessed = 0
+    ipv6InterestingWithdrawalsProcessed = 0
+
     while True:
         prefix = False
         event = eventQueue.get()
-        logging.info('ProcessEvents\t Picked {0} event from queue: {1}'.format(event.updateType, str(event.subnet + '/' + str(event.mask))))
-        logging.debug('ProcessEvents\t Picked {0} event from queue: {1}'.format(event.updateType, str(event.__dict__)))
+        updatesProcessed += 1
+        if updatesProcessed % 500 == 0:
+            logging.info('ProcessEvents\t Start Statistics of {0}'.format(time.strftime('%X %x %Z')))
+            logging.info('ProcessEvents\t\t Events Processed: {0}'.format(eventsProcessed))
+            logging.info('ProcessEvents\t\t IPv4 Announcements Processed: {0}'.format(ipv4AnnouncementsProcessed))
+            logging.info('ProcessEvents\t\t IPv6 Announcements Processed: {0}'.format(ipv6AnnouncementsProcessed))
+            logging.info('ProcessEvents\t\t IPv4 Withdrawals Processed: {0}'.format(ipv4WithdrawalsProcessed))
+            logging.info('ProcessEvents\t\t IPv6 Withdrawals Processed: {0}'.format(ipv6WithdrawalsProcessed))
+            logging.info('ProcessEvents\t\t IPv4 Interesting Announcements Processed: {0}'.format(ipv4InterestingAnnouncementsProcessed))
+            logging.info('ProcessEvents\t\t IPv6 Interesting Announcements Processed: {0}'.format(ipv6InterestingAnnouncementsProcessed))
+            logging.info('ProcessEvents\t\t IPv4 Interesting Withdrawals Processed: {0}'.format(ipv4InterestingWithdrawalsProcessed))
+            logging.info('ProcessEvents\t\t IPv6 Interesting Withdrawals Processed: {0}'.format(ipv6InterestingWithdrawalsProcessed))
+        logging.info('ProcessEvents\t End Statistics')
+        logging.info('ProcessEvents\t Picked event {2} of type {0} from queue: {1}'.format(event.updateType, str(event.subnet + '/' + str(event.mask)), str(eventsProcessed)))
+        logging.debug('ProcessEvents\t Picked event {2} of type {0} from queue: {1}'.format(event.updateType, str(event.__dict__), str(eventsProcessed)))
         # Check if event prefix exactly matches a monitoring prefix
         if Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).exists():
             prefix = Prefix.select().where((Prefix.subnet == event.subnet) & (Prefix.mask == event.mask)).first()
@@ -110,13 +133,27 @@ def processEvents(eventQueue):
                 elif IPNetwork(eventCidrPrefix) in IPNetwork(monitoredCidrPrefix):
                     event.prefixType = 'subnet'
                     prefix = monitoredPrefix
-        logging.info('Bootstrap\t Event {2} with prefix {0} was tested as a {1}'.format(event.subnet + '/' + str(event.mask), str(event.prefixType), event.updateType))
+        logging.info('Bootstrap\t Event {3} of type {2} with prefix {0} was tested as a {1}'.format(event.subnet + '/' + str(event.mask), str(event.prefixType), event.updateType, str(eventsProcessed)))
+
+        # Update statistics
+        eventIpVersion = IPNetwork(event.subnet + '/' + event.mask).version
+        if event.updateType == 'announce':
+            if eventIpVersion == 4: ipv4AnnouncementsProcessed += 1
+            elif eventIpVesion == 6: ipv6AnnouncementsProcessed += 1
+        elif event.updateType == 'withdraw':
+            if eventIpVersion == 4: ipv4WithdrawalsProcessed += 1
+            elif eventIpVersion == 6: ipv6WithdrawalsProcessed += 1
+
         if not prefix:
             discardEvent(event)
         else:
             if event.updateType == 'announce':
+                if eventIpVersion == 4: ipv4InterestingAnnouncementsProcessed += 1
+                elif eventIpVesion == 6: ipv6InterestingAnnouncementsProcessed += 1
                 checkAnnouncementEvent(event, prefix)
             if event.updateType == 'withdraw':
+                if eventIpVersion == 4: ipv4InterestingWithdrawalsProcessed += 1
+                elif eventIpVesion == 6: ipv6InterestingWithdrawalsProcessed += 1
                 checkWithdrawalEvent(event, prefix)
 
 # Test event if it is an withdrawal
