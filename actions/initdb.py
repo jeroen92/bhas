@@ -46,7 +46,7 @@ def initDb():
             subnet = row[0].split('/')[0]
             mask = row[0].split('/')[1]
             try:
-                target = Prefix.create(subnet=subnet, mask=mask)
+                target = Prefix.create(subnet=subnet, mask=mask, prefix=subnet + '/' + str(mask))
                 target.save()
             except IntegrityError as e:
                 # string.ljust(x) appends x spaces to the right end of the string
@@ -54,6 +54,7 @@ def initDb():
                 pass
 
     for prefix in Prefix.select():
+        if prefix.origins.exists(): continue
         prefixm = prefix.subnet+'/'+str(prefix.mask)
         url = "https://stat.ripe.net/data/whois/data.json?resource={0}".format(prefixm)
         system_out = subprocess.Popen(["/usr/bin/curl", url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -68,6 +69,9 @@ def initDb():
                         origin_as = value['value']
                         writeOrigin(origin_as, prefix)
         if not found:
-            origin_as = ipwhois.IPWhois(prefix.subnet).lookup()['asn']
-            writeOrigin(origin_as, prefix)
+            try:
+                origin_as = ipwhois.IPWhois(prefix.subnet).lookup()['asn']
+                writeOrigin(origin_as, prefix)
+            except:
+                prefix.delete()
     return 0

@@ -1,8 +1,9 @@
-import fileinput, json, sys, logging, datetime, multiprocessing, Queue, urllib, requests
+import fileinput, json, sys, logging, datetime, multiprocessing, Queue, urllib, requests, time
 from classes.hijack import *
 from classes.event import *
 from classes.origin import *
 from classes.prefix import *
+from classes.fields import *
 from netaddr import IPNetwork
 
 def bootstrap():
@@ -98,8 +99,8 @@ def processEvents(eventQueue):
     while True:
         prefix = False
         event = eventQueue.get()
-        updatesProcessed += 1
-        if updatesProcessed % 500 == 0:
+        eventsProcessed += 1
+        if eventsProcessed % 500 == 0:
             logging.info('ProcessEvents\t Start Statistics of {0}'.format(time.strftime('%X %x %Z')))
             logging.info('ProcessEvents\t\t Events Processed: {0}'.format(eventsProcessed))
             logging.info('ProcessEvents\t\t IPv4 Announcements Processed: {0}'.format(ipv4AnnouncementsProcessed))
@@ -110,7 +111,7 @@ def processEvents(eventQueue):
             logging.info('ProcessEvents\t\t IPv6 Interesting Announcements Processed: {0}'.format(ipv6InterestingAnnouncementsProcessed))
             logging.info('ProcessEvents\t\t IPv4 Interesting Withdrawals Processed: {0}'.format(ipv4InterestingWithdrawalsProcessed))
             logging.info('ProcessEvents\t\t IPv6 Interesting Withdrawals Processed: {0}'.format(ipv6InterestingWithdrawalsProcessed))
-        logging.info('ProcessEvents\t End Statistics')
+            logging.info('ProcessEvents\t End Statistics')
         logging.info('ProcessEvents\t Picked event {2} of type {0} from queue: {1}'.format(event.updateType, str(event.subnet + '/' + str(event.mask)), str(eventsProcessed)))
         logging.debug('ProcessEvents\t Picked event {2} of type {0} from queue: {1}'.format(event.updateType, str(event.__dict__), str(eventsProcessed)))
         # Check if event prefix exactly matches a monitoring prefix
@@ -124,7 +125,8 @@ def processEvents(eventQueue):
         # This tool should not be used that way. Please only monitor the largest network only.
         if not prefix:
             eventCidrPrefix = event.subnet + '/' + str(event.mask)
-            for monitoredPrefix in Prefix.select():
+#            for monitoredPrefix in Prefix.select().where((str(eventCidrPrefix) << Prefix.prefix) | (str(eventCidrField) >> Prefix.prefix)):
+            for monitoredPrefix in Prefix.raw("select * from prefix where prefix >> '{0}'::cidr or prefix << '{0}'::cidr".format(eventCidrPrefix)):
                 monitoredCidrPrefix = monitoredPrefix.subnet + '/' + str(monitoredPrefix.mask)
                 if IPNetwork(monitoredCidrPrefix) in IPNetwork(eventCidrPrefix):
                     event.prefixType = 'supernet'
@@ -139,7 +141,7 @@ def processEvents(eventQueue):
         eventIpVersion = IPNetwork(event.subnet + '/' + event.mask).version
         if event.updateType == 'announce':
             if eventIpVersion == 4: ipv4AnnouncementsProcessed += 1
-            elif eventIpVesion == 6: ipv6AnnouncementsProcessed += 1
+            elif eventIpVersion == 6: ipv6AnnouncementsProcessed += 1
         elif event.updateType == 'withdraw':
             if eventIpVersion == 4: ipv4WithdrawalsProcessed += 1
             elif eventIpVersion == 6: ipv6WithdrawalsProcessed += 1
@@ -149,11 +151,11 @@ def processEvents(eventQueue):
         else:
             if event.updateType == 'announce':
                 if eventIpVersion == 4: ipv4InterestingAnnouncementsProcessed += 1
-                elif eventIpVesion == 6: ipv6InterestingAnnouncementsProcessed += 1
+                elif eventIpVersion == 6: ipv6InterestingAnnouncementsProcessed += 1
                 checkAnnouncementEvent(event, prefix)
             if event.updateType == 'withdraw':
                 if eventIpVersion == 4: ipv4InterestingWithdrawalsProcessed += 1
-                elif eventIpVesion == 6: ipv6InterestingWithdrawalsProcessed += 1
+                elif eventIpVersion == 6: ipv6InterestingWithdrawalsProcessed += 1
                 checkWithdrawalEvent(event, prefix)
 
 # Test event if it is an withdrawal
